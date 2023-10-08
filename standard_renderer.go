@@ -141,6 +141,25 @@ func (r *standardRenderer) listen() {
 	}
 }
 
+func extractContentWithIndices(input string) (string, int, int) {
+    start := "\x1b]1337;"
+    end := "\x07"
+
+    startIndex := strings.Index(input, start)
+    if startIndex == -1 {
+        return "", -1, -1 // Start delimiter not found
+    }
+
+    endIndex := strings.Index(input[startIndex:], end)
+    if endIndex == -1 {
+        return "", -1, -1 // End delimiter not found
+    }
+
+    endIndex += len(end)
+    content := input[startIndex:endIndex]
+    return content, startIndex, endIndex
+}
+
 // flush renders the buffer.
 func (r *standardRenderer) flush() {
 	r.mtx.Lock()
@@ -155,7 +174,7 @@ func (r *standardRenderer) flush() {
 	buf := &bytes.Buffer{}
 	out := termenv.NewOutput(buf)
 
-	newLines := strings.Split(r.buf.String(), "\n")
+	newLines := strings.Split(r.buf.String(), "\n") 
 
 	// If we know the output's height, we can use it to determine how many
 	// lines we can render. We drop lines from the top of the render buffer if
@@ -166,7 +185,7 @@ func (r *standardRenderer) flush() {
 	}
 
 	numLinesThisFlush := len(newLines)
-	oldLines := strings.Split(r.lastRender, "\n")
+	//oldLines := strings.Split(r.lastRender, "\n")
 	skipLines := make(map[int]struct{})
 	flushQueuedMessages := len(r.queuedMessageLines) > 0 && !r.altScreenActive
 
@@ -182,11 +201,15 @@ func (r *standardRenderer) flush() {
 			// If the number of lines we want to render hasn't increased and
 			// new line is the same as the old line we can skip rendering for
 			// this line as a performance optimization.
-			if (len(newLines) <= len(oldLines)) && (len(newLines) > i && len(oldLines) > i) && (newLines[i] == oldLines[i]) {
-				skipLines[i] = struct{}{}
-			} else if _, exists := r.ignoreLines[i]; !exists {
-				out.ClearLine()
-			}
+			// if (len(newLines) <= len(oldLines)) && (len(newLines) > i && len(oldLines) > i) && (newLines[i] == oldLines[i]) {
+			// 	skipLines[i] = struct{}{}
+			// } else if _, exists := r.ignoreLines[i]; !exists {
+			// 	out.ClearLine()
+			// }
+      if _, exists := r.ignoreLines[i]; !exists {
+        out.ClearLine()
+      }
+
 
 			out.CursorUp(1)
 		}
@@ -208,11 +231,13 @@ func (r *standardRenderer) flush() {
 
 	// Merge the set of lines we're skipping as a rendering optimization with
 	// the set of lines we've explicitly asked the renderer to ignore.
-	if r.ignoreLines != nil {
-		for k, v := range r.ignoreLines {
-			skipLines[k] = v
-		}
-	}
+	// if r.ignoreLines != nil {
+	// 	for k, v := range r.ignoreLines {
+	// 		skipLines[k] = v
+	// 	}
+	// }
+  
+  var offset = 0
 
 	// Paint new lines
 	for i := 0; i < len(newLines); i++ {
@@ -231,7 +256,17 @@ func (r *standardRenderer) flush() {
 			// Note that on Windows we only get the width of the window on
 			// program initialization, so after a resize this won't perform
 			// correctly (signal SIGWINCH is not supported on Windows).
-			if r.width > 0 {
+			// testing for ITERM Escape Sequence
+			if strings.Contains(line, "\x1b]1337;") {
+        // content, start, end := extractContentWithIndices(line)
+        // out.Write([]byte(line[:start]))
+        out.Write([]byte(line))
+        // out.Write([]byte(line[end:]))
+        offset = 20
+        continue
+        // line = line[:start] + line[end:]
+			}
+			if r.width > 0  {
 				line = truncate.String(line, uint(r.width))
 			}
 
@@ -242,7 +277,7 @@ func (r *standardRenderer) flush() {
 			}
 		}
 	}
-	r.linesRendered = numLinesThisFlush
+	r.linesRendered = numLinesThisFlush + offset
 
 	// Make sure the cursor is at the start of the last line to keep rendering
 	// behavior consistent.
